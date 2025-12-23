@@ -9,6 +9,7 @@ st.set_page_config(page_title="Diagnosa Diabetes CBR-RF", layout="wide")
 # --- LOAD DATA & PARAMETER ---
 @st.cache_resource
 def load_data():
+    # Pastikan file-file ini ada di repository GitHub Anda
     df = pd.read_csv('data_cbr.csv') 
     with open('bobot_rf.pkl', 'rb') as f:
         weights = pickle.load(f)
@@ -19,37 +20,50 @@ def load_data():
 try:
     df, feature_weights, normalization_params = load_data()
     feature_columns = [col for col in df.columns if col != 'Outcome']
-except:
-    st.error("File data tidak ditemukan! Pastikan file sudah ada di GitHub.")
+except Exception as e:
+    st.error(f"Gagal memuat data: {e}")
     st.stop()
 
 # --- HEADER ---
 st.title("🏥 Sistem Deteksi Dini Diabetes Mellitus Tipe 2")
-st.info("Masukkan data klinis Anda pada panel di sebelah kiri. Sistem akan otomatis melakukan normalisasi dan membandingkan kondisi Anda dengan basis kasus.")
+st.info("""
+    Sistem ini menggunakan metode **Case-Based Reasoning (CBR)** untuk membandingkan parameter medis Anda 
+    dengan basis data kasus terdahulu. Silakan masukkan hasil laboratorium Anda pada panel sebelah kiri.
+""")
 
-# --- INPUT USER (SIDEBAR) ---
-st.sidebar.header("📝 Data Pasien Baru")
+# --- INPUT USER (SIDEBAR) DENGAN SATUAN ---
+st.sidebar.header("📝 Data Laboratorium Pasien")
 user_inputs = {}
 
-# MEMPERBAIKI KOLOM INPUT: Sekarang user memasukkan angka asli (bukan angka 0-1)
+# Dictionary untuk pemetaan satuan agar lebih profesional
+units = {
+    "Pregnancies": "Kali",
+    "Glucose": "mg/dL",
+    "BloodPressure": "mm Hg",
+    "SkinThickness": "mm",
+    "Insulin": "μU/mL",
+    "BMI": "kg/m²",
+    "DiabetesPedigreeFunction": "Score",
+    "Age": "Tahun"
+}
+
 for col in feature_columns:
     p = normalization_params[col]
-    # Kita gunakan nilai asli min dan max dari parameter normalisasi
+    unit = units.get(col, "")
     user_inputs[col] = st.sidebar.number_input(
-        f"{col}", 
-        min_value=None, # Kita hilangkan batasan ketat agar user lebih bebas input
-        value=float(p['min']), # Nilai awal dimulai dari nilai terkecil asli
-        help=f"Nilai minimal di dataset: {p['min']}, maksimal: {p['max']}"
+        f"{col} ({unit})", 
+        min_value=0.0, 
+        value=float(p['min']),
+        help=f"Data asli di dataset: {p['min']} - {p['max']}"
     )
 
 # --- PROSES DIAGNOSA ---
-if st.sidebar.button("🚀 Mulai Diagnosa", use_container_width=True):
+if st.sidebar.button("🚀 Mulai Analisis Sistem", use_container_width=True):
     
-    # 1. PROSES NORMALISASI OTOMATIS (User tidak perlu hitung sendiri)
+    # 1. NORMALISASI OTOMATIS
     norm_user_list = []
     for col in feature_columns:
         p = normalization_params[col]
-        # Rumus normalisasi: (Nilai_Input - Min_Asli) / (Max_Asli - Min_Asli)
         val_norm = (user_inputs[col] - p['min']) / (p['max'] - p['min']) if (p['max'] - p['min']) != 0 else 0
         norm_user_list.append(val_norm)
     
@@ -58,7 +72,6 @@ if st.sidebar.button("🚀 Mulai Diagnosa", use_container_width=True):
     
     # 2. HITUNG SIMILARITY (Weighted Cosine)
     similarities = []
-    # Bandingkan input yang sudah dinormalisasi tadi dengan dataset (yang juga sudah ternormalisasi)
     for idx, row in df.iterrows():
         case_old_arr = row[feature_columns].values
         weighted_user = user_arr * weight_arr
@@ -75,14 +88,14 @@ if st.sidebar.button("🚀 Mulai Diagnosa", use_container_width=True):
     df_result['similarity'] = similarities
     top_k = df_result.sort_values('similarity', ascending=False).head(5)
 
-    # 3. TAMPILKAN HASIL
+    # 3. TAMPILKAN TABEL PERBANDINGAN
     st.markdown("---")
-    st.subheader("🔍 Analisis Perbandingan Kasus")
+    st.subheader("🔍 Analisis Perbandingan Kasus Terdahulu")
+    st.write("Sistem menemukan 5 kasus dengan pola parameter paling serupa:")
     
     display_df = top_k.copy()
     display_df['Diagnosis'] = display_df['Outcome'].apply(lambda x: "Diabetes" if x == 1 else "Non-Diabetes")
     
-    # Menampilkan tabel (Data di tabel tetap data normalisasi agar sesuai hitungan similarity)
     cols_order = ['similarity', 'Diagnosis'] + feature_columns
     st.dataframe(
         display_df[cols_order].style.format({'similarity': "{:.4f}"})
@@ -90,7 +103,7 @@ if st.sidebar.button("🚀 Mulai Diagnosa", use_container_width=True):
         use_container_width=True
     )
 
-    # 4. KESIMPULAN NARASI
+    # 4. KESIMPULAN NARASI (VERSI AKADEMIS & AMAN)
     st.markdown("---")
     outcomes = top_k['Outcome'].values
     sims = top_k['similarity'].values
@@ -99,19 +112,47 @@ if st.sidebar.button("🚀 Mulai Diagnosa", use_container_width=True):
     
     final_pred = 1 if vote_1 > vote_0 else 0
     confidence = max(vote_1, vote_0) / np.sum(sims)
+    jml_diabetes = np.sum(outcomes == 1)
 
-    st.subheader("📋 Kesimpulan Diagnosis")
-    status_teks = "terdeteksi Diabetes Mellitus Tipe 2" if final_pred == 1 else "tidak terdeteksi Diabetes Mellitus Tipe 2"
-    
-    narasi = f"""
-    Berdasarkan hasil perhitungan *Weighted Cosine Similarity*, dari ke-5 kasus paling mirip menunjukkan bahwa 
-    kasus Anda **{status_teks}** dengan tingkat keyakinan sebesar **{confidence:.2%}**.
-    """
+    st.subheader("📋 Hasil Analisis Sistem")
     
     if final_pred == 1:
-        st.error(narasi)
+        st.error(f"### KATEGORI: TERDETEKSI DIABETES")
+        st.write(f"""
+            Berdasarkan algoritma *Weighted Cosine Similarity*, data Anda memiliki tingkat kemiripan dominan 
+            sebesar **{confidence:.2%}** dengan kelompok pasien pada kategori **Diabetes Mellitus Tipe 2**. 
+            Hasil ini diperoleh dari konsistensi pola terhadap basis data kasus yang tersedia.
+        """)
     else:
-        st.success(narasi)
+        if jml_diabetes > 0:
+            st.warning(f"### KATEGORI: NON-DIABETES (KEMIRIPAN PARSIAL)")
+            st.write(f"""
+                Sistem mengidentifikasi bahwa kondisi data Anda secara dominan (**{confidence:.2%}**) menyerupai 
+                kelompok pasien **Non-Diabetes**. Namun, secara statistik ditemukan pula kemiripan pola dengan 
+                {jml_diabetes} kasus pada kategori **Diabetes**. Adanya kemiripan pada kedua kategori ini 
+                menunjukkan bahwa parameter medis Anda berada pada ambang batas (*borderline*) yang memerlukan 
+                perhatian secara profesional.
+            """)
+        else:
+            st.success(f"### KATEGORI: NON-DIABETES")
+            st.write(f"""
+                Seluruh kasus terdekat (**{confidence:.2%}**) menunjukkan kesesuaian pola dengan kelompok data 
+                pasien pada kategori **Non-Diabetes**. Parameter yang Anda masukkan memiliki konsistensi tinggi 
+                dengan basis data kasus sehat dalam sistem.
+            """)
+
+    # 5. VISUALISASI BOBOT
+    with st.expander("📊 Lihat Bobot Pengaruh Fitur (Random Forest)"):
+        st.info("Grafik ini menunjukkan fitur mana yang paling berpengaruh dalam menentukan kemiripan kasus.")
+        st.bar_chart(pd.Series(feature_weights).sort_values(), horizontal=True)
 
 else:
-    st.write("Silakan masukkan data klinis Anda di sidebar dan klik tombol **Mulai Diagnosa**.")
+    st.write("⬅️ Silakan masukkan angka hasil laboratorium Anda pada sidebar untuk memulai.")
+
+# --- FOOTER / DISCLAIMER ---
+st.markdown("---")
+st.caption("""
+    **Disclaimer:** Sistem ini merupakan alat bantu skrining dini berbasis data statistik (CBR) dan 
+    bukan merupakan diagnosa medis final. Seluruh hasil yang ditampilkan harus dikonsultasikan kembali 
+    dengan tenaga kesehatan profesional untuk validasi lebih lanjut.
+""")
