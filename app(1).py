@@ -9,14 +9,14 @@ st.set_page_config(page_title="Diagnosa Diabetes CBR-RF", layout="wide")
 # --- LOAD DATA & PARAMETER (Sesuaikan path file-mu) ---
 @st.cache_resource
 def load_data():
-    # Ganti path ini sesuai lokasi file kamu di Drive
-    df = pd.read_csv('/content/drive/MyDrive/skripsi/preprocessed_data.csv')
-    with open('/content/drive/MyDrive/skripsi/feature_weights.pkl', 'rb') as f:
+    # Pastikan nama file di sini sama persis dengan di GitHub kamu
+    df = pd.read_csv('data_cbr.csv') 
+    with open('bobot_rf.pkl', 'rb') as f:
         weights = pickle.load(f)
-    with open('/content/drive/MyDrive/skripsi/normalization_params.pkl', 'rb') as f:
+    with open('norm_params.pkl', 'rb') as f:
         norm_params = pickle.load(f)
     return df, weights, norm_params
-
+    
 try:
     df, feature_weights, normalization_params = load_data()
     feature_columns = [col for col in df.columns if col != 'Outcome']
